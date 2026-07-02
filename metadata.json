@@ -1,0 +1,6 @@
+{
+  "name": "Football Prediction Engine",
+  "description": "An advanced statistical football prediction engine featuring Dixon-Coles Poisson goal models, Elo rating simulations, odds calibration, and deep AI match analysis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
