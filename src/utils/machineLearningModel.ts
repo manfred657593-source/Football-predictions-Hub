@@ -11,9 +11,10 @@ import {
   HybridModelPrediction,
 } from '../types';
 import { poissonProb, dixonColesTau, computeDixonColesConfidence } from './dixonColes';
+import { extractEngineeredXGFeatures } from './xgFeatureEngineering';
 
 /**
- * Preset League Parameters for League Adaptation
+ * Preset League Parameters for League Adaptation across all supported leagues
  */
 export const DEFAULT_LEAGUE_PRESETS: Record<string, LeagueAdaptationParams> = {
   'Premier League': {
@@ -58,6 +59,27 @@ export const DEFAULT_LEAGUE_PRESETS: Record<string, LeagueAdaptationParams> = {
     dixonColesRho: -0.05,
     drawBias: 0.21,
   },
+  'Eredivisie': {
+    leagueName: 'Eredivisie',
+    homeAdvantageMultiplier: 1.21,
+    avgGoalsPerGame: 3.10,
+    dixonColesRho: -0.05,
+    drawBias: 0.23,
+  },
+  'Primeira Liga': {
+    leagueName: 'Primeira Liga',
+    homeAdvantageMultiplier: 1.26,
+    avgGoalsPerGame: 2.68,
+    dixonColesRho: -0.07,
+    drawBias: 0.25,
+  },
+  'MLS': {
+    leagueName: 'MLS',
+    homeAdvantageMultiplier: 1.32,
+    avgGoalsPerGame: 2.95,
+    dixonColesRho: -0.05,
+    drawBias: 0.23,
+  },
 };
 
 /**
@@ -96,6 +118,12 @@ export function extractFeatureVector(
   // Feature 7: Market Implied Odds Shift
   const oddsMovement = eloDelta * 0.15 + xgDelta * 0.1;
 
+  // Feature 8-11: Engineered xG Advanced Features
+  const xgEngineered = extractEngineeredXGFeatures(homeTeam, awayTeam, homeTeam.league);
+  const xgFinishingDelta = xgEngineered.homeFinishingEfficiency - xgEngineered.awayFinishingEfficiency;
+  const xgNpxGDiff = xgEngineered.homeNpxGDiff - xgEngineered.awayNpxGDiff;
+  const xgMomentumDelta = xgEngineered.homeXGTrendMomentum - xgEngineered.awayXGTrendMomentum;
+
   return {
     eloDelta,
     xgDelta,
@@ -104,6 +132,10 @@ export function extractFeatureVector(
     restFatigueDelta,
     h2hDominance,
     oddsMovement,
+    xgFinishingDelta,
+    xgNpxGDiff,
+    xgMomentumDelta,
+    xgEngineered,
   };
 }
 
@@ -154,13 +186,18 @@ export function predictHybridModel(
   const eloProbAway = eloProbAwayRaw / eloSum;
 
   // PILLAR 2: POISSON DISTRIBUTIONS FOR GOAL SCORING
+  const features = extractFeatureVector(homeTeam, awayTeam, config);
+  const xgEng = features.xgEngineered;
+
   const goalScaling = leagueParams.avgGoalsPerGame / 2.75;
+  const homeXGAdj = 1.0 + (xgEng.homeFinishingEfficiency - 1.0) * 0.10 + xgEng.homeXGTrendMomentum * 0.06;
+  const awayXGAdj = 1.0 + (xgEng.awayFinishingEfficiency - 1.0) * 0.10 + xgEng.awayXGTrendMomentum * 0.06;
+
   const lambdaBase =
-    Math.max(0.2, homeTeam.homeAttack * awayTeam.awayDefense * leagueParams.homeAdvantageMultiplier * goalScaling);
-  const muBase = Math.max(0.2, awayTeam.awayAttack * homeTeam.homeDefense * goalScaling);
+    Math.max(0.2, homeTeam.homeAttack * awayTeam.awayDefense * leagueParams.homeAdvantageMultiplier * goalScaling * homeXGAdj);
+  const muBase = Math.max(0.2, awayTeam.awayAttack * homeTeam.homeDefense * goalScaling * awayXGAdj);
 
   // PILLAR 3: NEURAL NETWORK PATTERN RECOGNITION LAYER
-  const features = extractFeatureVector(homeTeam, awayTeam, config);
   const w = config.featureWeights;
 
   const linearScore =
@@ -170,7 +207,10 @@ export function predictHybridModel(
     features.recentPointsDelta * w.recentPoints +
     features.restFatigueDelta * w.restFatigue +
     features.h2hDominance * w.h2hDominance +
-    features.oddsMovement * w.oddsMovement;
+    features.oddsMovement * w.oddsMovement +
+    features.xgFinishingDelta * 0.8 +
+    features.xgNpxGDiff * 0.6 +
+    features.xgMomentumDelta * 0.5;
 
   // Multi-layer Perceptron (MLP) activation nodes
   const sigmoid = (z: number) => 1 / (1 + Math.exp(-z));

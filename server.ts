@@ -34,6 +34,18 @@ loadEnvFile();
 async function startServer() {
   const app = express();
   app.use(express.json());
+
+  // CORS headers middleware to ensure local Termux & browser calls never get blocked
+  app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-Auth-Token');
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   const PORT = 3000;
 
   // Initialize Gemini AI client server-side
@@ -219,6 +231,227 @@ async function startServer() {
       realDataPolicy: 'STRICT_VERIFIED_REAL_DATA_ONLY',
       logs: systemLogs.slice(0, 20),
     });
+  });
+
+  // Mask helper for security
+  const maskKey = (key?: string) => {
+    if (!key) return '';
+    if (key.length <= 8) return '••••' + key.slice(-2);
+    return key.slice(0, 4) + '••••' + key.slice(-4);
+  };
+
+  // API Key Status endpoint
+  app.get('/api/system/keys-status', (req, res) => {
+    res.json({
+      nvidiaKeyMasked: maskKey(process.env.NVIDIA_API_KEY),
+      geminiKeyMasked: maskKey(process.env.GEMINI_API_KEY),
+      footballDataKeyMasked: maskKey(process.env.FOOTBALL_DATA_API_KEY || process.env.FOOTBALL_DATA_KEY),
+      oddsApiKeyMasked: maskKey(process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY),
+      statsbombKeyMasked: maskKey(process.env.STATSBOMB_API_KEY || process.env.STATSBOMB_KEY),
+      sportmonksKeyMasked: maskKey(process.env.SPORTMONKS_API_KEY || process.env.SPORTMONK_KEY),
+      googleAppsScriptUrl: googleAppsScriptConfig.webAppUrl || '',
+      configured: {
+        nvidiaNim: !!process.env.NVIDIA_API_KEY,
+        geminiAi: !!process.env.GEMINI_API_KEY,
+        footballDataOrg: !!(process.env.FOOTBALL_DATA_API_KEY || process.env.FOOTBALL_DATA_KEY),
+        theOddsApi: !!(process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY),
+        statsbomb: !!(process.env.STATSBOMB_API_KEY || process.env.STATSBOMB_KEY),
+        sportmonks: !!(process.env.SPORTMONKS_API_KEY || process.env.SPORTMONK_KEY),
+        googleAppsScript: !!googleAppsScriptConfig.webAppUrl,
+        sofascore: true,
+        fotmob: true,
+      },
+    });
+  });
+
+  // Save API Keys endpoint (updates process.env in memory AND persists to .env file on disk)
+  app.post('/api/system/save-keys', (req, res) => {
+    const {
+      nvidiaKey,
+      geminiKey,
+      footballDataKey,
+      oddsApiKey,
+      statsbombKey,
+      sportmonksKey,
+      googleAppsScriptUrl,
+    } = req.body || {};
+
+    if (typeof nvidiaKey === 'string' && nvidiaKey.trim()) {
+      process.env.NVIDIA_API_KEY = nvidiaKey.trim();
+    }
+    if (typeof geminiKey === 'string' && geminiKey.trim()) {
+      process.env.GEMINI_API_KEY = geminiKey.trim();
+    }
+    if (typeof footballDataKey === 'string' && footballDataKey.trim()) {
+      process.env.FOOTBALL_DATA_API_KEY = footballDataKey.trim();
+    }
+    if (typeof oddsApiKey === 'string' && oddsApiKey.trim()) {
+      process.env.ODDS_API_KEY = oddsApiKey.trim();
+    }
+    if (typeof statsbombKey === 'string' && statsbombKey.trim()) {
+      process.env.STATSBOMB_API_KEY = statsbombKey.trim();
+    }
+    if (typeof sportmonksKey === 'string' && sportmonksKey.trim()) {
+      process.env.SPORTMONKS_API_KEY = sportmonksKey.trim();
+    }
+    if (typeof googleAppsScriptUrl === 'string' && googleAppsScriptUrl.trim()) {
+      googleAppsScriptConfig.webAppUrl = googleAppsScriptUrl.trim();
+      const match = googleAppsScriptUrl.match(/\/s\/([^/]+)\/exec/);
+      if (match && match[1]) {
+        googleAppsScriptConfig.deploymentId = match[1];
+      }
+      googleAppsScriptConfig.status = 'CONNECTED';
+    }
+
+    // Persist to .env file in project root
+    try {
+      const envPath = path.join(process.cwd(), '.env');
+      const existingContent = fs.existsSync(envPath) ? fs.readFileSync(envPath, 'utf-8') : '';
+      const lines = existingContent.split('\n');
+      const envMap: Record<string, string> = {};
+
+      for (const l of lines) {
+        const trimmed = l.trim();
+        if (trimmed && !trimmed.startsWith('#') && trimmed.includes('=')) {
+          const idx = trimmed.indexOf('=');
+          envMap[trimmed.slice(0, idx).trim()] = trimmed.slice(idx + 1).trim();
+        }
+      }
+
+      if (process.env.NVIDIA_API_KEY) envMap['NVIDIA_API_KEY'] = process.env.NVIDIA_API_KEY;
+      if (process.env.GEMINI_API_KEY) envMap['GEMINI_API_KEY'] = process.env.GEMINI_API_KEY;
+      if (process.env.FOOTBALL_DATA_API_KEY) envMap['FOOTBALL_DATA_API_KEY'] = process.env.FOOTBALL_DATA_API_KEY;
+      if (process.env.ODDS_API_KEY) envMap['ODDS_API_KEY'] = process.env.ODDS_API_KEY;
+      if (process.env.STATSBOMB_API_KEY) envMap['STATSBOMB_API_KEY'] = process.env.STATSBOMB_API_KEY;
+      if (process.env.SPORTMONKS_API_KEY) envMap['SPORTMONKS_API_KEY'] = process.env.SPORTMONKS_API_KEY;
+
+      const newEnvStr = Object.entries(envMap)
+        .map(([k, v]) => `${k}=${v}`)
+        .join('\n');
+
+      fs.writeFileSync(envPath, newEnvStr, 'utf-8');
+    } catch (err) {
+      console.warn('Error writing .env file:', err);
+    }
+
+    systemLogs.unshift({
+      id: `syslog_${Date.now()}`,
+      timestamp: new Date().toLocaleTimeString(),
+      type: 'UPDATE',
+      message: 'API Keys updated and persisted to .env file successfully.',
+    });
+
+    res.json({
+      status: 'ok',
+      message: 'API keys updated in memory and persisted to .env file successfully!',
+      configured: {
+        nvidiaNim: !!process.env.NVIDIA_API_KEY,
+        geminiAi: !!process.env.GEMINI_API_KEY,
+        footballDataOrg: !!(process.env.FOOTBALL_DATA_API_KEY || process.env.FOOTBALL_DATA_KEY),
+        theOddsApi: !!(process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY),
+        statsbomb: !!(process.env.STATSBOMB_API_KEY || process.env.STATSBOMB_KEY),
+        sportmonks: !!(process.env.SPORTMONKS_API_KEY || process.env.SPORTMONK_KEY),
+        googleAppsScript: !!googleAppsScriptConfig.webAppUrl,
+        sofascore: true,
+        fotmob: true,
+      },
+    });
+  });
+
+  // Test individual API Key Connection endpoint
+  app.post('/api/system/test-key', async (req, res) => {
+    const { service } = req.body || {};
+    const start = Date.now();
+
+    try {
+      if (service === 'nvidia') {
+        const key = process.env.NVIDIA_API_KEY;
+        if (!key) return res.status(400).json({ success: false, message: 'NVIDIA_API_KEY is missing.' });
+        const testRes = await fetch('https://integrate.api.nvidia.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'nvidia/llama-3.1-nemotron-70b-instruct',
+            messages: [{ role: 'user', content: 'Ping' }],
+            max_tokens: 5,
+          }),
+        });
+        const latencyMs = Date.now() - start;
+        if (testRes.ok) {
+          return res.json({ success: true, service: 'NVIDIA NIM', latencyMs, status: testRes.status, message: 'Connected to NVIDIA NIM Nemotron-70B successfully!' });
+        } else {
+          const text = await testRes.text();
+          return res.status(testRes.status).json({ success: false, service: 'NVIDIA NIM', latencyMs, status: testRes.status, message: `NVIDIA NIM returned status ${testRes.status}: ${text.slice(0, 100)}` });
+        }
+      }
+
+      if (service === 'gemini') {
+        const key = process.env.GEMINI_API_KEY;
+        if (!key) return res.status(400).json({ success: false, message: 'GEMINI_API_KEY is missing.' });
+        const ai = getAi();
+        if (!ai) return res.status(400).json({ success: false, message: 'Failed to initialize Gemini AI client.' });
+        const response = await ai.models.generateContent({ model: 'gemini-2.5-flash', contents: 'Ping' });
+        const latencyMs = Date.now() - start;
+        if (response && response.text) {
+          return res.json({ success: true, service: 'Gemini AI', latencyMs, message: 'Connected to Gemini 2.5 Flash API successfully!' });
+        }
+      }
+
+      if (service === 'football-data') {
+        const key = process.env.FOOTBALL_DATA_API_KEY || process.env.FOOTBALL_DATA_KEY;
+        if (!key) return res.status(400).json({ success: false, message: 'FOOTBALL_DATA_API_KEY is missing.' });
+        const testRes = await fetch('https://api.football-data.org/v4/competitions', {
+          headers: { 'X-Auth-Token': key },
+        });
+        const latencyMs = Date.now() - start;
+        if (testRes.ok) {
+          return res.json({ success: true, service: 'Football-Data.org', latencyMs, status: testRes.status, message: 'Connected to Football-Data.org API successfully!' });
+        } else {
+          return res.status(testRes.status).json({ success: false, service: 'Football-Data.org', latencyMs, status: testRes.status, message: `Football-Data.org returned status ${testRes.status}` });
+        }
+      }
+
+      if (service === 'odds-api') {
+        const key = process.env.ODDS_API_KEY || process.env.THE_ODDS_API_KEY;
+        if (!key) return res.status(400).json({ success: false, message: 'ODDS_API_KEY is missing.' });
+        const testRes = await fetch(`https://api.the-odds-api.com/v4/sports/?apiKey=${key}`);
+        const latencyMs = Date.now() - start;
+        if (testRes.ok) {
+          return res.json({ success: true, service: 'The Odds API', latencyMs, status: testRes.status, message: 'Connected to The Odds API successfully!' });
+        } else {
+          return res.status(testRes.status).json({ success: false, service: 'The Odds API', latencyMs, status: testRes.status, message: `The Odds API returned status ${testRes.status}` });
+        }
+      }
+
+      if (service === 'sofascore') {
+        const testRes = await fetch('https://api.sofascore.com/api/v1/sport/football/events/live', {
+          headers: SOFASCORE_HEADERS,
+        });
+        const latencyMs = Date.now() - start;
+        if (testRes.ok) {
+          return res.json({ success: true, service: 'SofaScore Live', latencyMs, status: testRes.status, message: 'SofaScore Live feed is ACTIVE and responding!' });
+        } else {
+          return res.status(testRes.status).json({ success: false, service: 'SofaScore Live', latencyMs, status: testRes.status, message: `SofaScore returned status ${testRes.status}` });
+        }
+      }
+
+      if (service === 'fotmob') {
+        const todayStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+        const testRes = await fetch(`https://www.fotmob.com/api/matches?date=${todayStr}`, {
+          headers: FOTMOB_HEADERS,
+        });
+        const latencyMs = Date.now() - start;
+        if (testRes.ok) {
+          return res.json({ success: true, service: 'FotMob API', latencyMs, status: testRes.status, message: 'FotMob API feed is ACTIVE and responding!' });
+        } else {
+          return res.status(testRes.status).json({ success: false, service: 'FotMob API', latencyMs, status: testRes.status, message: `FotMob returned status ${testRes.status}` });
+        }
+      }
+
+      res.status(400).json({ success: false, message: 'Unknown service requested for testing.' });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message || String(err), message: `Connection test failed: ${err.message || String(err)}` });
+    }
   });
 
   app.get('/api/system/check-updates', (req, res) => {

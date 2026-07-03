@@ -17,8 +17,10 @@ import {
   Clock,
   Sliders,
   Sparkles,
-  Server
+  Server,
+  Key
 } from 'lucide-react';
+import { ApiKeyConfigModal } from './ApiKeyConfigModal';
 
 export interface SystemStatusData {
   version: string;
@@ -61,6 +63,7 @@ export const SystemAutoUpdater: React.FC = () => {
   const [autoUpdate, setAutoUpdate] = useState<boolean>(true);
   const [intervalSec, setIntervalSec] = useState<number>(60);
   const [activeStep, setActiveStep] = useState<number>(0);
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
 
   const fetchSystemStatus = async () => {
     try {
@@ -202,6 +205,14 @@ export const SystemAutoUpdater: React.FC = () => {
           </div>
 
           <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+            <button
+              onClick={() => setShowKeyModal(true)}
+              className="flex items-center justify-center gap-2 px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-mono font-bold text-xs tracking-wider uppercase transition-all cursor-pointer"
+            >
+              <Key className="w-4 h-4 text-emerald-400" />
+              <span>CONFIGURE API KEYS & SECRETS</span>
+            </button>
+
             <button
               onClick={handleRunSystemUpgrade}
               disabled={isUpdating}
@@ -451,6 +462,12 @@ export const SystemAutoUpdater: React.FC = () => {
           )}
         </div>
       </div>
+
+      <ApiKeyConfigModal
+        isOpen={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+        onKeysSaved={fetchSystemStatus}
+      />
     </div>
   );
 };

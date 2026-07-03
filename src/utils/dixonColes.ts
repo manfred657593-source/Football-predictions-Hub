@@ -1,4 +1,5 @@
 import { Team, PredictionResult, CorrectScore } from '../types';
+import { extractEngineeredXGFeatures } from './xgFeatureEngineering';
 
 /**
  * Calculates Poisson probability for k events with mean lambda
@@ -56,14 +57,21 @@ export function predictDixonColes(
   const homeFormAdj = getFormFactor(homeTeam.recentForm);
   const awayFormAdj = getFormFactor(awayTeam.recentForm);
 
-  // Compute expected goals
+  // Extract Feature Engineered xG metrics
+  const xgFeatures = extractEngineeredXGFeatures(homeTeam, awayTeam, homeTeam.league);
+  
+  // xG Finishing & Rolling Momentum Modifiers
+  const homeXGModifier = 1.0 + (xgFeatures.homeFinishingEfficiency - 1.0) * 0.12 + xgFeatures.homeXGTrendMomentum * 0.08;
+  const awayXGModifier = 1.0 + (xgFeatures.awayFinishingEfficiency - 1.0) * 0.12 + xgFeatures.awayXGTrendMomentum * 0.08;
+
+  // Compute expected goals combining base attack/defense strengths with engineered xG
   const lambda = Math.max(
     0.2,
-    homeTeam.homeAttack * awayTeam.awayDefense * homeAdvantage * homeFormAdj
+    homeTeam.homeAttack * awayTeam.awayDefense * homeAdvantage * homeFormAdj * homeXGModifier
   );
   const mu = Math.max(
     0.2,
-    awayTeam.awayAttack * homeTeam.homeDefense * awayFormAdj
+    awayTeam.awayAttack * homeTeam.homeDefense * awayFormAdj * awayXGModifier
   );
 
   const maxGoals = 6;

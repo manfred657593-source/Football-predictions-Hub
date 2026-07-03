@@ -20,7 +20,11 @@ import {
   BrainCircuit,
   FileCode,
   Cpu,
+  Target,
+  Key,
 } from 'lucide-react';
+
+import { ApiKeyConfigModal } from './components/ApiKeyConfigModal';
 
 import { TEAMS_DATABASE } from './data/teams';
 import { predictDixonColes } from './utils/dixonColes';
@@ -48,15 +52,19 @@ import { SyndicateAnalystStudio } from './components/SyndicateAnalystStudio';
 import { SystemAutoUpdater } from './components/SystemAutoUpdater';
 import { ArbitrageNotificationCenter } from './components/ArbitrageNotificationCenter';
 import { ArbitrageToast } from './components/ArbitrageToast';
+import { XGFeatureStudio } from './components/XGFeatureStudio';
 import { scanLeaguesForArbitrage, scanLeaguesForArbitrageAsync } from './services/arbitrageScanner';
 
 export function App() {
   const [activeTab, setActiveTab] = useState<
-    'syndicate' | 'fixtures' | 'model' | 'ml' | 'odds' | 'sim' | 'elo' | 'live' | 'radar' | 'apps_script' | 'system'
+    'syndicate' | 'fixtures' | 'model' | 'ml' | 'xg_studio' | 'odds' | 'sim' | 'elo' | 'live' | 'radar' | 'apps_script' | 'system'
   >('syndicate');
 
   // AI Model Selection: NVIDIA NIM (Main) vs Gemini (Option)
   const [modelOption, setModelOption] = useState<'nvidia' | 'gemini'>('nvidia');
+
+  // API Key Manager Modal state
+  const [showKeyModal, setShowKeyModal] = useState<boolean>(false);
 
   // Competitions & Teams state
   const [selectedLeague, setSelectedLeague] = useState<string>('All');
@@ -432,6 +440,16 @@ export function App() {
 
           {/* Right Header Area: AI Model Selector & Arbitrage Notifications */}
           <div className="flex items-center gap-3">
+            <button
+              id="btn-open-api-keys-modal"
+              onClick={() => setShowKeyModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-900 hover:bg-slate-800 border border-slate-700 text-slate-200 font-mono text-xs font-bold rounded-lg transition-colors cursor-pointer"
+              title="Configure API Keys & Secrets"
+            >
+              <Key className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="hidden md:inline">API Keys</span>
+            </button>
+
             <ArbitrageNotificationCenter
               notifications={notifications}
               settings={notificationSettings}
@@ -487,6 +505,7 @@ export function App() {
             { id: 'fixtures', label: 'Upcoming Fixtures', icon: Calendar },
             { id: 'model', label: 'Model Probabilities', icon: Activity },
             { id: 'ml', label: 'ML Studio', icon: BrainCircuit },
+            { id: 'xg_studio', label: 'xG Feature Studio', icon: Target },
             { id: 'odds', label: 'Multi-Odds & Arbitrage', icon: DollarSign },
             { id: 'sim', label: 'Monte Carlo Simulator', icon: BarChart3 },
             { id: 'elo', label: 'Elo & Hyperparameters', icon: Sliders },
@@ -987,6 +1006,14 @@ export function App() {
         {/* TAB 3: MACHINE LEARNING STUDIO */}
         {activeTab === 'ml' && <MachineLearningStudio modelOption={modelOption} />}
 
+        {/* TAB 3.5: xG FEATURE ENGINEERING STUDIO */}
+        {activeTab === 'xg_studio' && (
+          <XGFeatureStudio
+            selectedHomeTeam={selectedHomeTeam}
+            selectedAwayTeam={selectedAwayTeam}
+          />
+        )}
+
         {/* TAB 6: LIVE TELEMETRY FEED */}
         {activeTab === 'live' && <LiveFeed modelOption={modelOption} />}
 
@@ -1018,6 +1045,12 @@ export function App() {
           <span>Dixon-Coles Poisson Model &bull; Bivariate Goal Distribution &bull; NVIDIA NIM AI</span>
         </div>
       </footer>
+
+      {/* Global API Key Configuration Modal */}
+      <ApiKeyConfigModal
+        isOpen={showKeyModal}
+        onClose={() => setShowKeyModal(false)}
+      />
     </div>
   );
 }
